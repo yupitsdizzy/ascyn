@@ -1,0 +1,57 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users can read their own data and write only under their userId path.
+    match /users/{userId}/{document=**} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // Allow creates/updates/deletes only when authenticated as the user.
+      allow create, update, delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // More specific restrictions for xp_events to reduce tampering risk.
+    match /users/{userId}/characters/{characterId}/xp_events/{eventId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.characterId == characterId
+        && request.resource.data.keys().hasAll(["uid","characterId","sourceType","sourceId","occurredAt","overallXp","statXp","status"])
+        && request.resource.data.overallXp is number
+        && request.resource.data.statXp is map;
+
+      // Prevent arbitrary updates/deletes; only allow marking an event as reversed
+      // by the same user and when adding 'status' == 'reversed' and 'reversedBy' fields.
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasAll(["status"]) 
+        && request.resource.data.status == 'reversed'
+        && request.resource.data.reversedBy is string;
+
+      allow delete: if false;
+    }
+
+    // Protect character aggregates: only owner may update, and values must be numeric where present.
+    match /users/{userId}/characters/{characterId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && (request.resource.data.overallXpTotal is number || !request.resource.data.keys().hasAny(["overallXpTotal"]))
+        && (request.resource.data.statXpTotals is map || !request.resource.data.keys().hasAny(["statXpTotals"]))
+        ;
+
+      allow delete: if false;
+    }
+
+    // Deny everything else by default
+    match /{document=**} {
+      allow read: if false;
+      allow write: if false;
+    }
+  }
+}
