@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../xp/providers/xp_providers.dart';
+import '../../xp/domain/ascyn_stat.dart';
 
 class TasksPage extends ConsumerStatefulWidget {
   const TasksPage({super.key});
@@ -15,6 +16,7 @@ class TasksPage extends ConsumerStatefulWidget {
 class _TasksPageState extends ConsumerState<TasksPage> {
   final _nameCtrl = TextEditingController();
   final _xpCtrl = TextEditingController(text: '50');
+  AscynStat _selectedStat = AscynStat.discipline;
 
   @override
   void dispose() {
@@ -24,6 +26,8 @@ class _TasksPageState extends ConsumerState<TasksPage> {
   }
 
   Future<void> _createTask(String uid, String characterId) async {
+    final messenger = ScaffoldMessenger.of(context);
+
     final name = _nameCtrl.text.trim();
     final xp = double.tryParse(_xpCtrl.text) ?? 50.0;
     if (name.isEmpty) return;
@@ -34,8 +38,19 @@ class _TasksPageState extends ConsumerState<TasksPage> {
         .collection('characters')
         .doc(characterId)
         .collection('tasks');
+    // Enforce max 5 active tasks
+    final existing = await col.get();
+    if (existing.docs.length >= 5) {
+      messenger.showSnackBar(const SnackBar(content: Text('Max 5 active tasks allowed')));
+      return;
+    }
 
-    await col.add({'name': name, 'xp': xp, 'createdAt': Timestamp.now()});
+    await col.add({
+      'name': name,
+      'xp': xp,
+      'primaryStat': _selectedStat.name,
+      'createdAt': Timestamp.now(),
+    });
     _nameCtrl.clear();
   }
 
@@ -65,6 +80,18 @@ class _TasksPageState extends ConsumerState<TasksPage> {
                   children: [
                     Expanded(child: TextField(controller: _nameCtrl, decoration: const InputDecoration(hintText: 'Task name'))),
                     const SizedBox(width: 8),
+                    SizedBox(
+                      width: 140,
+                      child: DropdownButtonFormField<AscynStat>(
+                        initialValue: _selectedStat,
+                        onChanged: (v) {
+                          if (v != null) setState(() => _selectedStat = v);
+                        },
+                        items: AscynStat.values.map((s) => DropdownMenuItem(value: s, child: Text(s.name))).toList(),
+                        decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     SizedBox(width: 80, child: TextField(controller: _xpCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(hintText: 'XP'))),
                     const SizedBox(width: 8),
                     ElevatedButton(onPressed: () => _createTask(uid, characterId), child: const Text('Add')),
@@ -85,6 +112,7 @@ class _TasksPageState extends ConsumerState<TasksPage> {
                         final data = doc.data();
                         final name = data['name'] as String? ?? 'Unnamed';
                         final xp = (data['xp'] as num?)?.toDouble() ?? 50.0;
+                        final primaryStat = data['primaryStat'] as String? ?? 'discipline';
 
                         return ListTile(
                           title: Text(name),
@@ -101,7 +129,7 @@ class _TasksPageState extends ConsumerState<TasksPage> {
                                     characterId: characterId,
                                     taskId: doc.id,
                                     overallXp: xp,
-                                    primaryStatName: 'discipline',
+                                    primaryStatName: primaryStat,
                                   );
                                   messenger.showSnackBar(SnackBar(content: Text('Recorded ${res.eventId}')));
                                 } catch (e) {
