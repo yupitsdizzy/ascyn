@@ -15,16 +15,24 @@ service cloud.firestore {
     match /users/{userId}/characters/{characterId}/xp_events/{eventId} {
       allow read: if request.auth != null && request.auth.uid == userId;
 
+      // More strict create rules:
+      // - must be owner
+      // - event id must use one of the accepted prefixes to reduce tampering
+      // - required fields present and typed
+      // - new events must be created with status == 'active'
+      // - clients cannot set reversal metadata on creation
       allow create: if request.auth != null
         && request.auth.uid == userId
         && request.resource.data.uid == userId
         && request.resource.data.characterId == characterId
+        && (eventId.matches('^(task_|habit_|undo_).*$'))
         && request.resource.data.keys().hasAll(["uid","characterId","sourceType","sourceId","occurredAt","overallXp","statXp","status"])
         && request.resource.data.overallXp is number
-        && request.resource.data.statXp is map;
+        && request.resource.data.statXp is map
+        && request.resource.data.status == 'active'
+        && !request.resource.data.keys().hasAny(["reversedBy","undoNote","reversesEventId"]);
 
-      // Prevent arbitrary updates/deletes; only allow marking an event as reversed
-      // by the same user and when adding 'status' == 'reversed' and 'reversedBy' fields.
+      // Allow update only when marking an event reversed via the defined fields
       allow update: if request.auth != null
         && request.auth.uid == userId
         && request.resource.data.keys().hasAll(["status"]) 
@@ -41,9 +49,15 @@ service cloud.firestore {
 
       allow update: if request.auth != null
         && request.auth.uid == userId
-        && (request.resource.data.overallXpTotal is number || !request.resource.data.keys().hasAny(["overallXpTotal"]))
-        && (request.resource.data.statXpTotals is map || !request.resource.data.keys().hasAny(["statXpTotals"]))
-        ;
+        // overallXpTotal must be numeric if provided
+        && ( !request.resource.data.keys().hasAny(["overallXpTotal"]) || request.resource.data.overallXpTotal is number )
+        // statXpTotals must be a map of numbers if provided
+        && ( !request.resource.data.keys().hasAny(["statXpTotals"]) || request.resource.data.statXpTotals is map )
+        // lastEventAt must be a timestamp if provided
+        && ( !request.resource.data.keys().hasAny(["lastEventAt"]) || request.resource.data.lastEventAt is timestamp )
+        // lastEventId and lastEventNote must be strings if provided
+        && ( !request.resource.data.keys().hasAny(["lastEventId"]) || request.resource.data.lastEventId is string )
+        && ( !request.resource.data.keys().hasAny(["lastEventNote"]) || request.resource.data.lastEventNote is string );
 
       allow delete: if false;
     }
