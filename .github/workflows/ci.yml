@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build:
+    name: Analyze & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+      - name: Run tests (unit)
+        run: flutter test --reporter=expanded
+        env:
+          CI: true
+
+      - name: Install Firebase CLI
+        run: |
+          npm install -g firebase-tools@latest
+
+      - name: Run integration tests with Firestore emulator
+        # Uses firebase emulators:exec to start emulator and run tests in same environment
+        run: |
+          firebase emulators:exec --project ascyn-8b478 --only firestore "flutter pub get && flutter test --reporter=expanded"
+        env:
+          CI: true
