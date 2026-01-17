@@ -3,7 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../xp/providers/xp_providers.dart';
+// Ledger operations moved server-side to Cloud Functions.
+// import '../../xp/providers/xp_providers.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../../xp/domain/ascyn_stat.dart';
 
 class TasksPage extends ConsumerStatefulWidget {
@@ -123,15 +125,16 @@ class _TasksPageState extends ConsumerState<TasksPage> {
                               onPressed: () async {
                                 final messenger = ScaffoldMessenger.of(context);
                                 try {
-                                  final ledger = ref.read(xpLedgerServiceProvider);
-                                  final res = await ledger.recordTaskCompletion(
-                                    uid: uid,
-                                    characterId: characterId,
-                                    taskId: doc.id,
-                                    overallXp: xp,
-                                    primaryStatName: primaryStat,
-                                  );
-                                  messenger.showSnackBar(SnackBar(content: Text('Recorded ${res.eventId}')));
+                                  final functions = FirebaseFunctions.instance;
+                                  final callable = functions.httpsCallable('recordTaskCompletion');
+                                  final result = await callable.call(<String, dynamic>{
+                                    'characterId': characterId,
+                                    'taskId': doc.id,
+                                    'overallXp': xp,
+                                    'primaryStatName': primaryStat,
+                                  });
+                                  final data = result.data as Map<String, dynamic>;
+                                  messenger.showSnackBar(SnackBar(content: Text('Recorded ${data['eventId']}')));
                                 } catch (e) {
                                   messenger.showSnackBar(SnackBar(content: Text('Complete failed: $e')));
                                 }
@@ -181,14 +184,14 @@ class _TasksPageState extends ConsumerState<TasksPage> {
 
                                   if (confirmed != true) return;
 
-                                  final ledger = ref.read(xpLedgerServiceProvider);
-                                  final res = await ledger.undoEvent(
-                                    uid: uid,
-                                    characterId: characterId,
-                                    eventIdToUndo: lastId,
-                                  );
-
-                                  messenger.showSnackBar(SnackBar(content: Text('Undo ${res.eventId} ${res.created ? 'created' : 'exists'}')));
+                                  final functions = FirebaseFunctions.instance;
+                                  final callable = functions.httpsCallable('undoEvent');
+                                  final result = await callable.call(<String, dynamic>{
+                                    'characterId': characterId,
+                                    'eventIdToUndo': lastId,
+                                  });
+                                  final data = result.data as Map<String, dynamic>;
+                                  messenger.showSnackBar(SnackBar(content: Text('Undo ${data['eventId']} ${data['created'] == true ? 'created' : 'exists'}')));
                                 } catch (e) {
                                   messenger.showSnackBar(SnackBar(content: Text('Undo failed: $e')));
                                 }
